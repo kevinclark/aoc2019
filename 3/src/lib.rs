@@ -1,21 +1,22 @@
-use std::collections::HashSet;
-
 #[derive(Debug, PartialEq)]
 pub enum Move {
-    Right(u16),
-    Left(u16),
-    Up(u16),
-    Down(u16),
+    Right(u32),
+    Left(u32),
+    Up(u32),
+    Down(u32),
 }
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
-pub struct Point(pub i16, pub i16);
+pub struct Point {
+    pub x: i32,
+    pub y: i32,
+}
 
 pub fn parse_path(input: &str) -> Vec<Move> {
     input
         .split(",")
         .map(|step| {
-            let num: u16 = step[1..]
+            let num: u32 = step[1..]
                 .parse()
                 .expect(&format!("Unable to parse: {}", step[1..].to_string()));
             let direction = step.chars().nth(0).unwrap();
@@ -30,29 +31,41 @@ pub fn parse_path(input: &str) -> Vec<Move> {
         .collect()
 }
 
-pub fn path_points(path: &Vec<Move>) -> HashSet<Point> {
+pub fn path_points(path: &Vec<Move>) -> Vec<Point> {
     use Move::*;
 
-    let mut points = HashSet::new();
+    let mut points = Vec::default();
 
-    path.iter().fold(Point(0, 0), |pos, mov| {
+    path.iter().fold(Point { x: 0, y: 0 }, |pos, mov| {
         let new_points: Vec<Point> = match mov {
             Right(steps) => (0..*steps)
-                .map(|x| Point(pos.0 + (x as i16) + 1, pos.1))
+                .map(|s| Point {
+                    x: pos.x + (s as i32) + 1,
+                    y: pos.y,
+                })
                 .collect(),
             Left(steps) => (0..*steps)
-                .map(|x| Point(pos.0 - (x as i16) - 1, pos.1))
+                .map(|s| Point {
+                    x: pos.x - (s as i32) - 1,
+                    y: pos.y,
+                })
                 .collect(),
             Up(steps) => (0..*steps)
-                .map(|y| Point(pos.0, pos.1 + (y as i16) + 1))
+                .map(|s| Point {
+                    x: pos.x,
+                    y: pos.y + (s as i32) + 1,
+                })
                 .collect(),
             Down(steps) => (0..*steps)
-                .map(|y| Point(pos.0, pos.1 - (y as i16) - 1))
+                .map(|s| Point {
+                    x: pos.x,
+                    y: pos.y - (s as i32) - 1,
+                })
                 .collect(),
         };
 
         new_points.iter().for_each(|p| {
-            points.insert(*p);
+            points.push(*p);
         });
 
         *new_points.last().unwrap()
@@ -76,21 +89,14 @@ mod tests {
     fn walking() {
         let path = parse_path("R1,U1,L2,D2");
         let points = path_points(&path);
-        let expected: HashSet<Point> = vec![
-            Point(1, 0),
-            Point(1, 1),
-            Point(0, 1),
-            Point(-1, 1),
-            Point(-1, 0),
-            Point(-1, -1),
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(
-            expected,
-            points,
-            "difference: {:?}",
-            expected.difference(&points)
-        );
+        let expected = vec![
+            Point { x: 1, y: 0 },
+            Point { x: 1, y: 1 },
+            Point { x: 0, y: 1 },
+            Point { x: -1, y: 1 },
+            Point { x: -1, y: 0 },
+            Point { x: -1, y: -1 },
+        ];
+        assert_eq!(expected, points);
     }
 }
