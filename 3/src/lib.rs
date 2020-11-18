@@ -1,9 +1,15 @@
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum Direction {
+    Right,
+    Left,
+    Up,
+    Down,
+}
+
 #[derive(Debug, PartialEq)]
-pub enum Move {
-    Right(u32),
-    Left(u32),
-    Up(u32),
-    Down(u32),
+pub struct Move {
+    direction: Direction,
+    distance: u32,
 }
 
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
@@ -12,77 +18,105 @@ pub struct Point {
     pub y: i32,
 }
 
+impl Point {
+    fn add(&self, movement: &Move) -> Point {
+        use Direction::*;
+
+        match movement.direction {
+            Right => Point {
+                x: self.x + movement.distance as i32,
+                y: self.y,
+            },
+            Left => Point {
+                x: self.x - movement.distance as i32,
+                y: self.y,
+            },
+            Up => Point {
+                x: self.x,
+                y: self.y + movement.distance as i32,
+            },
+            Down => Point {
+                x: self.x,
+                y: self.y - movement.distance as i32,
+            },
+        }
+    }
+}
+
 pub fn parse_path(input: &str) -> Vec<Move> {
+    use Direction::*;
+
     input
         .split(",")
         .map(|step| {
-            let num: u32 = step[1..]
+            let distance: u32 = step[1..]
                 .parse()
                 .expect(&format!("Unable to parse: {}", step[1..].to_string()));
-            let direction = step.chars().nth(0).unwrap();
-            match direction {
-                'R' => Move::Right(num),
-                'L' => Move::Left(num),
-                'U' => Move::Up(num),
-                'D' => Move::Down(num),
-                _ => panic!("Unknown step direction: {}", direction),
+
+            let direction = match step.chars().nth(0).unwrap() {
+                'R' => Right,
+                'L' => Left,
+                'U' => Up,
+                'D' => Down,
+                _ => panic!("Unknown step direction: {}", step),
+            };
+
+            Move {
+                direction,
+                distance,
             }
         })
         .collect()
 }
 
-pub fn path_points(path: &Vec<Move>) -> Vec<Point> {
-    use Move::*;
-
+pub fn path_points(path: &[Move]) -> Vec<Point> {
     let mut points = Vec::default();
 
-    path.iter().fold(Point { x: 0, y: 0 }, |pos, mov| {
-        let new_points: Vec<Point> = match mov {
-            Right(steps) => (0..*steps)
-                .map(|s| Point {
-                    x: pos.x + (s as i32) + 1,
-                    y: pos.y,
-                })
-                .collect(),
-            Left(steps) => (0..*steps)
-                .map(|s| Point {
-                    x: pos.x - (s as i32) - 1,
-                    y: pos.y,
-                })
-                .collect(),
-            Up(steps) => (0..*steps)
-                .map(|s| Point {
-                    x: pos.x,
-                    y: pos.y + (s as i32) + 1,
-                })
-                .collect(),
-            Down(steps) => (0..*steps)
-                .map(|s| Point {
-                    x: pos.x,
-                    y: pos.y - (s as i32) - 1,
-                })
-                .collect(),
-        };
+    let mut starting_point = Point { x: 0, y: 0 };
 
-        new_points.iter().for_each(|p| {
-            points.push(*p);
-        });
+    for movement in path {
+        points.extend((0..movement.distance).map(|s| {
+            starting_point.add(&Move {
+                direction: movement.direction,
+                distance: s + 1,
+            })
+        }));
 
-        *new_points.last().unwrap()
-    });
+        starting_point = *points.last().unwrap();
+    }
 
     points
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Move::*;
+    use super::Direction::*;
     use super::*;
 
     #[test]
     fn parsing() {
         let path = parse_path("R10,D30,L5,U125");
-        assert_eq!(vec![Right(10), Down(30), Left(5), Up(125)], path)
+        assert_eq!(
+            vec![
+                Move {
+                    direction: Right,
+                    distance: 10
+                },
+                Move {
+                    direction: Down,
+                    distance: 30
+                },
+                Move {
+                    direction: Left,
+                    distance: 5
+                },
+                Move {
+                    direction: Up,
+                    distance: 125
+                }
+            ],
+            path
+        )
     }
 
     #[test]
