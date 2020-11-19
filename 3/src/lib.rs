@@ -22,22 +22,24 @@ impl Point {
     fn add(&self, movement: &Move) -> Point {
         use Direction::*;
 
+        let distance = movement.distance as i32;
+
         match movement.direction {
             Right => Point {
-                x: self.x + movement.distance as i32,
+                x: self.x + distance,
                 y: self.y,
             },
             Left => Point {
-                x: self.x - movement.distance as i32,
+                x: self.x - distance,
                 y: self.y,
             },
             Up => Point {
                 x: self.x,
-                y: self.y + movement.distance as i32,
+                y: self.y + distance,
             },
             Down => Point {
                 x: self.x,
-                y: self.y - movement.distance as i32,
+                y: self.y - distance,
             },
         }
     }
