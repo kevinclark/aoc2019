@@ -55,15 +55,15 @@ fn non_descending(pwd: u32) -> bool {
 }
 
 fn main() {
-    let mut count = 0;
+    let with_trips = (146810..=612564)
+        .filter(|n| non_descending(*n) && dup_digits(*n))
+        .count();
+    let without_trips = (146810..=612564)
+        .filter(|n| non_descending(*n) && dup_digits_but_not_trip(*n))
+        .count();
 
-    for n in 146810..=612564 {
-        if dup_digits_but_not_trip(n) && non_descending(n) {
-            count += 1;
-        }
-    }
-
-    println!("Number of candidates: {}", count);
+    println!("Number of candidates without triples: {}", without_trips);
+    println!("Number of candidates with triples: {}", with_trips);
 }
 
 #[cfg(test)]
