@@ -1,30 +1,54 @@
-fn dup_digits(pwd: u32) -> bool {
-    let mut shifted = pwd / 10;
-    let mut original = pwd;
+use itertools::Itertools;
 
-    while shifted > 0 && original > 0 {
-        if shifted % 10 == original % 10 {
+fn least_significant_digits(number: u32) -> Vec<u8> {
+    let mut ds = vec![];
+    let mut remaining = number;
+
+    while remaining > 0 {
+        ds.push((remaining % 10) as u8);
+        remaining /= 10;
+    }
+
+    ds
+}
+
+fn dup_digits(pwd: u32) -> bool {
+    let shifted = &least_significant_digits(pwd)[1..];
+    let original = least_significant_digits(pwd);
+
+    for (next, current) in shifted.iter().zip(original) {
+        if *next == current {
             return true;
         }
-
-        shifted /= 10;
-        original /= 10;
     }
 
     false
 }
 
-fn non_descending(pwd: u32) -> bool {
-    let mut shifted = pwd / 10;
-    let mut original = pwd;
+fn dup_digits_but_not_trip(pwd: u32) -> bool {
+    let shifted = &least_significant_digits(pwd)[1..];
+    let original = least_significant_digits(pwd);
 
-    while shifted > 0 && original > 0 {
-        if shifted % 10 > original % 10 {
+    return shifted
+        .iter()
+        .zip(original)
+        .group_by(|(next, current)| *next == current)
+        .into_iter()
+        .filter(|(k, _)| *k)
+        .map(|(_, g)| g.count())
+        .find(|group_count| *group_count == 1)
+        .map(|_| true)
+        .unwrap_or(false);
+}
+
+fn non_descending(pwd: u32) -> bool {
+    let shifted = &least_significant_digits(pwd)[1..];
+    let original = least_significant_digits(pwd);
+
+    for (next, current) in shifted.iter().zip(original) {
+        if *next > current {
             return false;
         }
-
-        shifted /= 10;
-        original /= 10;
     }
 
     true
@@ -34,7 +58,7 @@ fn main() {
     let mut count = 0;
 
     for n in 146810..=612564 {
-        if dup_digits(n) && non_descending(n) {
+        if dup_digits_but_not_trip(n) && non_descending(n) {
             count += 1;
         }
     }
@@ -51,6 +75,13 @@ mod tests {
         assert!(!dup_digits(123456));
         assert!(dup_digits(123455));
         assert!(dup_digits(113456));
+    }
+
+    #[test]
+    fn detects_dup_but_not_trip() {
+        assert!(dup_digits_but_not_trip(123455));
+        assert!(!dup_digits_but_not_trip(123555));
+        assert!(dup_digits_but_not_trip(112555));
     }
 
     #[test]
