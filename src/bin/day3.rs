@@ -1,10 +1,16 @@
-use crossed_wires::*;
+use aoc2019::crossed_wires::*;
+use clap::{App, Arg};
 use std::collections::HashMap;
 use std::fs;
 
 fn main() {
-    let input = fs::read_to_string("input.txt").unwrap();
-    let mut lines = input.trim().split("\n");
+    let matches = App::new("day3")
+        .arg(Arg::with_name("INPUT").required(true))
+        .get_matches();
+
+    let input = &fs::read_to_string(matches.value_of("INPUT").unwrap()).unwrap();
+
+    let mut lines = input.trim().split('\n');
 
     let first_wire = path_points(&parse_path(lines.next().unwrap()));
     let second_wire = path_points(&parse_path(lines.next().unwrap()));

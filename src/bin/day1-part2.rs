@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 
 use anyhow::Result;
+use clap::{App, Arg};
 
 fn fuel_mass_for(mass: u32) -> u32 {
     if let Some(fuel) = (mass / 3).checked_sub(2) {
@@ -12,13 +13,17 @@ fn fuel_mass_for(mass: u32) -> u32 {
 }
 
 fn main() -> Result<()> {
-    let file = File::open("input.txt")?;
+    let matches = App::new("day1-part2")
+        .arg(Arg::with_name("INPUT").required(true))
+        .get_matches();
+
+    let file = File::open(matches.value_of("INPUT").unwrap())?;
     let reader = io::BufReader::new(file);
 
     let fuel_mass: u32 = reader
         .lines()
         .map(|l| l.unwrap().parse::<u32>().unwrap())
-        .map(|m| fuel_mass_for(m))
+        .map(fuel_mass_for)
         .sum();
 
     println!("Fuel needed: {}", fuel_mass);

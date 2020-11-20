@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 
+use clap::{App, Arg};
 use snafu::{ResultExt, Snafu};
 
 #[derive(Debug, Snafu)]
@@ -12,7 +13,11 @@ pub enum Error {
 }
 
 fn main() -> Result<(), Error> {
-    let file = File::open("input.txt").context(OpenFile)?;
+    let matches = App::new("day1-part1")
+        .arg(Arg::with_name("INPUT").required(true))
+        .get_matches();
+
+    let file = File::open(matches.value_of("INPUT").unwrap()).context(OpenFile)?;
     let reader = io::BufReader::new(file);
 
     let mut acc = 0;

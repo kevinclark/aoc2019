@@ -29,7 +29,7 @@ fn dup_digits_but_not_trip(pwd: u32) -> bool {
     let shifted = &least_significant_digits(pwd)[1..];
     let original = least_significant_digits(pwd);
 
-    return shifted
+    shifted
         .iter()
         .zip(original)
         .group_by(|(next, current)| *next == current)
@@ -38,7 +38,7 @@ fn dup_digits_but_not_trip(pwd: u32) -> bool {
         .map(|(_, g)| g.count())
         .find(|group_count| *group_count == 1)
         .map(|_| true)
-        .unwrap_or(false);
+        .unwrap_or(false)
 }
 
 fn non_descending(pwd: u32) -> bool {
