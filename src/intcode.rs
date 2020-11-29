@@ -12,10 +12,10 @@ pub enum Op {
 
 pub fn load_program(text: &str) -> Memory {
     text.trim()
-        .split(",")
+        .split(',')
         .map(|s| {
             s.parse::<u32>()
-                .expect(&format!("Failed to parse: {:?}", s))
+                .unwrap_or_else(|_| panic!("Failed to parse: {:?}", s))
         })
         .collect()
 }
