@@ -1,60 +1,140 @@
-use std::cmp::min;
+use std::convert::TryFrom;
 
-type Memory = Vec<u32>;
+type Memory = Vec<i64>;
+type Address = usize;
 
 #[derive(Debug, PartialEq)]
-pub enum Op {
+enum Parameter {
+    Position { pos: Address },
+    Immediate { value: i64 },
+}
+
+#[derive(Debug, PartialEq)]
+enum Op {
     Unknown, // For memory with an invalid opcode
     Halt,
-    Add { s1: u32, s2: u32, dest: u32 },
-    Mul { s1: u32, s2: u32, dest: u32 },
+    Add {
+        s1: Parameter,
+        s2: Parameter,
+        dest: Address,
+    },
+    Mul {
+        s1: Parameter,
+        s2: Parameter,
+        dest: Address,
+    },
+    Input {
+        dest: Address,
+    },
+    Output {
+        src: Address,
+    },
+}
+
+#[derive(Debug, PartialEq)]
+struct InstructionSpec {
+    opcode: u8,
+    param_is_immediate: [bool; 3],
 }
 
 pub fn load_program(text: &str) -> Memory {
     text.trim()
         .split(',')
         .map(|s| {
-            s.parse::<u32>()
+            s.parse::<i64>()
                 .unwrap_or_else(|_| panic!("Failed to parse: {:?}", s))
         })
         .collect()
 }
 
-pub fn parse_instruction(slice: &[u32]) -> Op {
-    match slice[0] {
+fn parse_instruction_spec(int: u16) -> InstructionSpec {
+    let mut remaining = int;
+    let mut ds: [u8; 5] = [0; 5];
+
+    let mut idx = 4;
+    while remaining > 0 {
+        ds[idx] = u8::try_from(remaining % 10)
+            .expect("Mod 10 doesn't fit into u8. Something is very wrong.");
+        remaining /= 10;
+        idx -= 1;
+    }
+
+    InstructionSpec {
+        opcode: u8::try_from((ds[3] * 10) + ds[4])
+            .expect("Op code is > 99, which makes little sense"),
+        param_is_immediate: [ds[2] == 1, ds[1] == 1, ds[0] == 1],
+    }
+}
+
+fn build_op(spec: InstructionSpec, slice: &[i64]) -> Op {
+    let build_param = |n| match spec.param_is_immediate[n] {
+        true => Parameter::Immediate { value: slice[n] },
+        false => Parameter::Position {
+            pos: Address::try_from(slice[n]).expect("Positions must be usize convertible"),
+        },
+    };
+
+    let address_from = |n: usize| Address::try_from(slice[n]).expect("{} must be an Address");
+
+    match spec.opcode {
         1 => Op::Add {
-            s1: slice[1],
-            s2: slice[2],
-            dest: slice[3],
+            s1: build_param(0),
+            s2: build_param(1),
+            dest: address_from(2),
         },
         2 => Op::Mul {
-            s1: slice[1],
-            s2: slice[2],
-            dest: slice[3],
+            s1: build_param(0),
+            s2: build_param(1),
+            dest: address_from(2),
+        },
+        3 => Op::Input {
+            dest: address_from(0),
+        },
+        4 => Op::Output {
+            src: address_from(0),
         },
         99 => Op::Halt,
         _ => Op::Unknown,
     }
 }
 
-pub fn apply_op(op: &Op, mem: &mut Memory) {
+fn next_op(mem: &[i64]) -> Op {
+    let instruction = u16::try_from(mem[0]).expect(&format!("Instruction too large: {}", mem[0]));
+
+    build_op(parse_instruction_spec(instruction), &mem[1..])
+}
+
+fn apply_op<'a>(op: &Op, mem: &mut Memory, inputs: &mut impl Iterator<Item = &'a i64>) {
+    let value_of = |p: &Parameter| match p {
+        Parameter::Position { pos } => mem[*pos],
+        Parameter::Immediate { value } => *value,
+    };
+
     match op {
         Op::Halt | Op::Unknown => (),
-        Op::Add { s1, s2, dest } => mem[*dest as usize] = mem[*s1 as usize] + mem[*s2 as usize],
-        Op::Mul { s1, s2, dest } => mem[*dest as usize] = mem[*s1 as usize] * mem[*s2 as usize],
+        Op::Add { s1, s2, dest } => mem[*dest] = value_of(s1) + value_of(s2),
+        Op::Mul { s1, s2, dest } => mem[*dest] = value_of(s1) * value_of(s2),
+        Op::Input { dest } => mem[*dest] = inputs.next().copied().expect("Expected an input"),
+        Op::Output { src } => println!("Output: {}", mem[*src]),
     }
 }
 
-pub fn execute(mem: &mut Memory) {
+pub fn execute<'a>(mem: &mut Memory, inputs: &mut impl Iterator<Item = &'a i64>) {
     let mut ip = 0;
 
     while ip < mem.len() {
-        match parse_instruction(&mem[ip..min(ip + 4, mem.len())]) {
+        let op = next_op(&mem[ip..]);
+
+        match &op {
             Op::Halt => break,
-            o => apply_op(&o, mem),
+            o => apply_op(&o, mem, inputs),
         }
 
-        ip += 4;
+        ip += match &op {
+            Op::Add { .. } | Op::Mul { .. } => 4,
+            Op::Input { .. } | Op::Output { .. } => 2,
+            _ => panic!("Unknown op: {:?}", op),
+        }
     }
 }
 
@@ -69,72 +149,103 @@ mod tests {
 
     #[test]
     fn parsing() {
-        assert_eq!(Op::Halt, parse_instruction(&[99]));
+        let spec = parse_instruction_spec(99);
+        assert_eq!(99, spec.opcode);
+        assert_eq!([false, false, false], spec.param_is_immediate);
+    }
+
+    #[test]
+    fn building_halt() {
+        assert_eq!(Op::Halt, next_op(&[99i64]));
+    }
+
+    #[test]
+    fn building_add() {
         assert_eq!(
             Op::Add {
-                s1: 9,
-                s2: 10,
+                s1: Parameter::Position { pos: 9 },
+                s2: Parameter::Position { pos: 10 },
                 dest: 3
             },
-            parse_instruction(&[1, 9, 10, 3])
+            next_op(&[1, 9, 10, 3])
         );
+    }
+
+    #[test]
+    fn building_mul() {
         assert_eq!(
             Op::Mul {
-                s1: 3,
-                s2: 11,
+                s1: Parameter::Position { pos: 3 },
+                s2: Parameter::Position { pos: 11 },
                 dest: 0
             },
-            parse_instruction(&[2, 3, 11, 0])
+            next_op(&[2, 3, 11, 0])
         )
     }
 
     #[test]
     fn application() {
         let mut mem: Memory = vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
+        let inputs = vec![];
 
         apply_op(
             &Op::Add {
-                s1: 9,
-                s2: 10,
+                s1: Parameter::Position { pos: 9 },
+                s2: Parameter::Position { pos: 10 },
                 dest: 3,
             },
             &mut mem,
+            &mut inputs.iter(),
         );
 
         assert_eq!(vec![1, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
 
         apply_op(
             &Op::Mul {
-                s1: 3,
-                s2: 11,
+                s1: Parameter::Position { pos: 3 },
+                s2: Parameter::Position { pos: 11 },
                 dest: 0,
             },
             &mut mem,
+            &mut inputs.iter(),
         );
 
         assert_eq!(vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
 
-        apply_op(&Op::Halt, &mut mem);
+        apply_op(&Op::Halt, &mut mem, &mut inputs.iter());
 
         assert_eq!(vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
     }
 
     #[test]
-    fn execution() {
+    fn execute_add() {
         let mut mem = vec![1, 0, 0, 0, 99];
-        execute(&mut mem);
+        let input = vec![];
+        execute(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 0, 0, 0, 99]);
+    }
 
+    #[test]
+    fn execute_mul() {
         let mut mem = vec![2, 3, 0, 3, 99];
-        execute(&mut mem);
+        let input = vec![];
+        execute(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 3, 0, 6, 99]);
+    }
 
+    #[test]
+    fn execute_with_trailing_data() {
         let mut mem = vec![2, 4, 4, 5, 99, 0];
-        execute(&mut mem);
+        let input = vec![];
+        execute(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 4, 4, 5, 99, 9801]);
+    }
 
+    #[test]
+    fn execute_instructions_modified() {
         let mut mem = vec![1, 1, 1, 4, 99, 5, 6, 0, 99];
-        execute(&mut mem);
+        let input = vec![];
+        execute(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
     }
 }

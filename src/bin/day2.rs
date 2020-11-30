@@ -18,7 +18,8 @@ fn main() {
             // and replace position 2 with the value 2
             mem[1] = noun;
             mem[2] = verb;
-            intcode::execute(&mut mem);
+            let inputs: [i64; 0] = [];
+            intcode::execute(&mut mem, &mut inputs.iter());
 
             if mem[0] == 19690720 {
                 println!("Noun: {} Verb: {}", noun, verb);
