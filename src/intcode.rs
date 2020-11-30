@@ -37,6 +37,13 @@ struct InstructionSpec {
     param_is_immediate: [bool; 3],
 }
 
+#[derive(Debug, PartialEq)]
+enum Jump {
+    Relative(usize),
+    Absolute(usize),
+    Halt,
+}
+
 pub fn load_program(text: &str) -> Memory {
     text.trim()
         .split(',')
@@ -72,12 +79,14 @@ fn build_op(spec: InstructionSpec, slice: &[i64]) -> Op {
             Parameter::Immediate { value: slice[n] }
         } else {
             Parameter::Position {
-                pos: Address::try_from(slice[n]).expect("Positions must be usize convertible"),
+                pos: Address::try_from(slice[n])
+                    .expect("Positions must be usize convertible"),
             }
         }
     };
 
-    let address_from = |n: usize| Address::try_from(slice[n]).expect("{} must be an Address");
+    let address_from =
+        |n: usize| Address::try_from(slice[n]).expect("{} must be an Address");
 
     match spec.opcode {
         1 => Op::Add {
@@ -102,12 +111,17 @@ fn build_op(spec: InstructionSpec, slice: &[i64]) -> Op {
 }
 
 fn next_op(mem: &[i64]) -> Op {
-    let instruction = u16::try_from(mem[0]).expect(&format!("Instruction too large: {}", mem[0]));
+    let instruction = u16::try_from(mem[0])
+        .expect(&format!("Instruction too large: {}", mem[0]));
 
     build_op(parse_instruction_spec(instruction), &mem[1..])
 }
 
-fn apply_op<'a>(op: &Op, mem: &mut Memory, inputs: &mut impl Iterator<Item = &'a i64>) {
+fn apply_op<'a>(
+    op: &Op,
+    mem: &mut Memory,
+    inputs: &mut impl Iterator<Item = &'a i64>,
+) -> Jump {
     let value_of = |p: &Parameter| match p {
         Parameter::Position { pos } => mem[*pos],
         Parameter::Immediate { value } => *value,
@@ -117,26 +131,31 @@ fn apply_op<'a>(op: &Op, mem: &mut Memory, inputs: &mut impl Iterator<Item = &'a
         Op::Halt | Op::Unknown => (),
         Op::Add { s1, s2, dest } => mem[*dest] = value_of(s1) + value_of(s2),
         Op::Mul { s1, s2, dest } => mem[*dest] = value_of(s1) * value_of(s2),
-        Op::Input { dest } => mem[*dest] = inputs.next().copied().expect("Expected an input"),
+        Op::Input { dest } => {
+            mem[*dest] = inputs.next().copied().expect("Expected an input")
+        }
         Op::Output { src } => println!("Output: {}", mem[*src]),
+    }
+
+    match &op {
+        Op::Add { .. } | Op::Mul { .. } => Jump::Relative(4),
+        Op::Input { .. } | Op::Output { .. } => Jump::Relative(2),
+        Op::Halt => Jump::Halt,
+        _ => panic!("Unknown op: {:?}", op),
     }
 }
 
-pub fn execute<'a>(mem: &mut Memory, inputs: &mut impl Iterator<Item = &'a i64>) {
+pub fn execute<'a>(
+    mem: &mut Memory,
+    inputs: &mut impl Iterator<Item = &'a i64>,
+) {
     let mut ip = 0;
 
     while ip < mem.len() {
-        let op = next_op(&mem[ip..]);
-
-        match &op {
-            Op::Halt => break,
-            o => apply_op(&o, mem, inputs),
-        }
-
-        ip += match &op {
-            Op::Add { .. } | Op::Mul { .. } => 4,
-            Op::Input { .. } | Op::Output { .. } => 2,
-            _ => panic!("Unknown op: {:?}", op),
+        ip = match apply_op(&next_op(&mem[ip..]), mem, inputs) {
+            Jump::Relative(offset) => ip + offset,
+            Jump::Absolute(address) => address,
+            Jump::Halt => break,
         }
     }
 }
@@ -191,31 +210,40 @@ mod tests {
         let mut mem: Memory = vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
         let inputs = vec![];
 
-        apply_op(
-            &Op::Add {
-                s1: Parameter::Position { pos: 9 },
-                s2: Parameter::Position { pos: 10 },
-                dest: 3,
-            },
-            &mut mem,
-            &mut inputs.iter(),
+        assert_eq!(
+            Jump::Relative(4),
+            apply_op(
+                &Op::Add {
+                    s1: Parameter::Position { pos: 9 },
+                    s2: Parameter::Position { pos: 10 },
+                    dest: 3,
+                },
+                &mut mem,
+                &mut inputs.iter(),
+            )
         );
 
         assert_eq!(vec![1, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
 
-        apply_op(
-            &Op::Mul {
-                s1: Parameter::Position { pos: 3 },
-                s2: Parameter::Position { pos: 11 },
-                dest: 0,
-            },
-            &mut mem,
-            &mut inputs.iter(),
+        assert_eq!(
+            Jump::Relative(4),
+            apply_op(
+                &Op::Mul {
+                    s1: Parameter::Position { pos: 3 },
+                    s2: Parameter::Position { pos: 11 },
+                    dest: 0,
+                },
+                &mut mem,
+                &mut inputs.iter(),
+            )
         );
 
         assert_eq!(vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
 
-        apply_op(&Op::Halt, &mut mem, &mut inputs.iter());
+        assert_eq!(
+            Jump::Halt,
+            apply_op(&Op::Halt, &mut mem, &mut inputs.iter())
+        );
 
         assert_eq!(vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
     }
