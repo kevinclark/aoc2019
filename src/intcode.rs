@@ -67,11 +67,14 @@ fn parse_instruction_spec(int: u16) -> InstructionSpec {
 }
 
 fn build_op(spec: InstructionSpec, slice: &[i64]) -> Op {
-    let build_param = |n| match spec.param_is_immediate[n] {
-        true => Parameter::Immediate { value: slice[n] },
-        false => Parameter::Position {
-            pos: Address::try_from(slice[n]).expect("Positions must be usize convertible"),
-        },
+    let build_param = |n| {
+        if spec.param_is_immediate[n] {
+            Parameter::Immediate { value: slice[n] }
+        } else {
+            Parameter::Position {
+                pos: Address::try_from(slice[n]).expect("Positions must be usize convertible"),
+            }
+        }
     };
 
     let address_from = |n: usize| Address::try_from(slice[n]).expect("{} must be an Address");
