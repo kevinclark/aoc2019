@@ -3,15 +3,16 @@ use std::convert::TryFrom;
 type Memory = Vec<i64>;
 type Address = usize;
 
+const DEBUG_ON: bool = false;
+
 #[derive(Debug, PartialEq)]
 enum Parameter {
-    Position { pos: Address },
-    Immediate { value: i64 },
+    Position(Address),
+    Immediate(i64),
 }
 
 #[derive(Debug, PartialEq)]
 enum Op {
-    Unknown, // For memory with an invalid opcode
     Halt,
     Add {
         s1: Parameter,
@@ -27,7 +28,25 @@ enum Op {
         dest: Address,
     },
     Output {
-        src: Address,
+        src: Parameter,
+    },
+    JumpIfTrue {
+        cmp: Parameter,
+        dest: Parameter,
+    },
+    JumpIfFalse {
+        cmp: Parameter,
+        dest: Parameter,
+    },
+    LessThan {
+        s1: Parameter,
+        s2: Parameter,
+        dest: Address,
+    },
+    Equals {
+        s1: Parameter,
+        s2: Parameter,
+        dest: Address,
     },
 }
 
@@ -42,6 +61,11 @@ enum Jump {
     Relative(usize),
     Absolute(usize),
     Halt,
+}
+
+#[derive(Debug, PartialEq)]
+enum Error {
+    UnknownOpcode { spec: InstructionSpec },
 }
 
 pub fn load_program(text: &str) -> Memory {
@@ -73,48 +97,78 @@ fn parse_instruction_spec(int: u16) -> InstructionSpec {
     }
 }
 
-fn build_op(spec: InstructionSpec, slice: &[i64]) -> Op {
+fn build_op(spec: InstructionSpec, slice: &[i64]) -> Result<Op, Error> {
+    use Op::*;
+
     let build_param = |n| {
         if spec.param_is_immediate[n] {
-            Parameter::Immediate { value: slice[n] }
+            Parameter::Immediate(slice[n])
         } else {
-            Parameter::Position {
-                pos: Address::try_from(slice[n])
+            Parameter::Position(
+                Address::try_from(slice[n])
                     .expect("Positions must be usize convertible"),
-            }
+            )
         }
     };
 
     let address_from =
         |n: usize| Address::try_from(slice[n]).expect("{} must be an Address");
 
-    match spec.opcode {
-        1 => Op::Add {
+    let op = match spec.opcode {
+        1 => Add {
             s1: build_param(0),
             s2: build_param(1),
             dest: address_from(2),
         },
-        2 => Op::Mul {
+        2 => Mul {
             s1: build_param(0),
             s2: build_param(1),
             dest: address_from(2),
         },
-        3 => Op::Input {
+        3 => Input {
             dest: address_from(0),
         },
-        4 => Op::Output {
-            src: address_from(0),
+        4 => Output {
+            src: build_param(0),
         },
-        99 => Op::Halt,
-        _ => Op::Unknown,
-    }
+        5 => JumpIfTrue {
+            cmp: build_param(0),
+            dest: build_param(1),
+        },
+        6 => JumpIfFalse {
+            cmp: build_param(0),
+            dest: build_param(1),
+        },
+        7 => LessThan {
+            s1: build_param(0),
+            s2: build_param(1),
+            dest: address_from(2),
+        },
+        8 => Equals {
+            s1: build_param(0),
+            s2: build_param(1),
+            dest: address_from(2),
+        },
+        99 => Halt,
+        _ => return Err(Error::UnknownOpcode { spec }),
+    };
+
+    Ok(op)
 }
 
-fn next_op(mem: &[i64]) -> Op {
+fn next_op(mem: &[i64]) -> Result<Op, Error> {
     let instruction = u16::try_from(mem[0])
         .expect(&format!("Instruction too large: {}", mem[0]));
 
     build_op(parse_instruction_spec(instruction), &mem[1..])
+}
+
+fn jump_if(dest: Address, f: impl Fn() -> bool) -> Jump {
+    if f() {
+        return Jump::Absolute(dest);
+    } else {
+        return Jump::Relative(3);
+    }
 }
 
 fn apply_op<'a>(
@@ -122,25 +176,45 @@ fn apply_op<'a>(
     mem: &mut Memory,
     inputs: &mut impl Iterator<Item = &'a i64>,
 ) -> Jump {
+    use Op::*;
+
     let value_of = |p: &Parameter| match p {
-        Parameter::Position { pos } => mem[*pos],
-        Parameter::Immediate { value } => *value,
+        Parameter::Position(pos) => mem[*pos],
+        Parameter::Immediate(value) => *value,
     };
 
     match op {
-        Op::Halt | Op::Unknown => (),
-        Op::Add { s1, s2, dest } => mem[*dest] = value_of(s1) + value_of(s2),
-        Op::Mul { s1, s2, dest } => mem[*dest] = value_of(s1) * value_of(s2),
-        Op::Input { dest } => {
+        Halt => (),
+        Add { s1, s2, dest } => mem[*dest] = value_of(s1) + value_of(s2),
+        Mul { s1, s2, dest } => mem[*dest] = value_of(s1) * value_of(s2),
+        Input { dest } => {
             mem[*dest] = inputs.next().copied().expect("Expected an input")
         }
-        Op::Output { src } => println!("Output: {}", mem[*src]),
+        Output { src } => println!("Output: {}", value_of(src)),
+        JumpIfTrue { cmp, dest } => {
+            return jump_if(usize::try_from(value_of(dest)).unwrap(), || {
+                value_of(cmp) != 0
+            })
+        }
+        JumpIfFalse { cmp, dest } => {
+            return jump_if(usize::try_from(value_of(dest)).unwrap(), || {
+                value_of(cmp) == 0
+            })
+        }
+        LessThan { s1, s2, dest } => {
+            mem[*dest] = if value_of(s1) < value_of(s2) { 1 } else { 0 }
+        }
+        Equals { s1, s2, dest } => {
+            mem[*dest] = if value_of(s1) == value_of(s2) { 1 } else { 0 }
+        }
     }
 
     match &op {
-        Op::Add { .. } | Op::Mul { .. } => Jump::Relative(4),
-        Op::Input { .. } | Op::Output { .. } => Jump::Relative(2),
-        Op::Halt => Jump::Halt,
+        Add { .. } | Mul { .. } | LessThan { .. } | Equals { .. } => {
+            Jump::Relative(4)
+        }
+        Input { .. } | Output { .. } => Jump::Relative(2),
+        Halt => Jump::Halt,
         _ => panic!("Unknown op: {:?}", op),
     }
 }
@@ -149,14 +223,47 @@ pub fn execute<'a>(
     mem: &mut Memory,
     inputs: &mut impl Iterator<Item = &'a i64>,
 ) {
+    let mut ticks = 0;
     let mut ip = 0;
 
     while ip < mem.len() {
-        ip = match apply_op(&next_op(&mem[ip..]), mem, inputs) {
-            Jump::Relative(offset) => ip + offset,
-            Jump::Absolute(address) => address,
-            Jump::Halt => break,
+        let o = next_op(&mem[ip..]);
+
+        if DEBUG_ON {
+            println!("Mem:");
+
+            let mut offset = 0;
+            for line in (*mem).chunks(5).map(|c| {
+                c.iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<String>>()
+                    .join("\t")
+            }) {
+                println!("{}|\t{}", offset, line);
+
+                offset += 5
+            }
+
+            println!("Next op: {:?}", o);
+            println!("");
+            println!("");
         }
+
+        match o {
+            Ok(op) => {
+                ip = match apply_op(&op, mem, inputs) {
+                    Jump::Relative(offset) => ip + offset,
+                    Jump::Absolute(address) => address,
+                    Jump::Halt => break,
+                }
+            }
+            Err(e) => panic!(
+                "Failure at ip: {} ticks: {}\nFailure: {:?}\nMemory: {:?}",
+                ip, ticks, e, mem
+            ),
+        }
+
+        ticks += 1;
     }
 }
 
@@ -178,17 +285,17 @@ mod tests {
 
     #[test]
     fn building_halt() {
-        assert_eq!(Op::Halt, next_op(&[99i64]));
+        assert_eq!(Ok(Op::Halt), next_op(&[99i64]));
     }
 
     #[test]
     fn building_add() {
         assert_eq!(
-            Op::Add {
-                s1: Parameter::Position { pos: 9 },
-                s2: Parameter::Position { pos: 10 },
+            Ok(Op::Add {
+                s1: Parameter::Position(9),
+                s2: Parameter::Position(10),
                 dest: 3
-            },
+            }),
             next_op(&[1, 9, 10, 3])
         );
     }
@@ -196,17 +303,63 @@ mod tests {
     #[test]
     fn building_mul() {
         assert_eq!(
-            Op::Mul {
-                s1: Parameter::Position { pos: 3 },
-                s2: Parameter::Position { pos: 11 },
+            Ok(Op::Mul {
+                s1: Parameter::Position(3),
+                s2: Parameter::Position(11),
                 dest: 0
-            },
+            }),
             next_op(&[2, 3, 11, 0])
         )
     }
 
     #[test]
-    fn application() {
+    fn building_jump_if_true() {
+        assert_eq!(
+            Ok(Op::JumpIfTrue {
+                cmp: Parameter::Immediate(0),
+                dest: Parameter::Immediate(1)
+            }),
+            next_op(&[1105, 0, 1])
+        )
+    }
+
+    #[test]
+    fn building_jump_if_false() {
+        assert_eq!(
+            Ok(Op::JumpIfFalse {
+                cmp: Parameter::Immediate(0),
+                dest: Parameter::Immediate(1)
+            }),
+            next_op(&[1106, 0, 1])
+        )
+    }
+
+    #[test]
+    fn building_less_than() {
+        assert_eq!(
+            Ok(Op::LessThan {
+                s1: Parameter::Immediate(3),
+                s2: Parameter::Immediate(4),
+                dest: 0
+            }),
+            next_op(&[1107, 3, 4, 0])
+        )
+    }
+
+    #[test]
+    fn building_equals() {
+        assert_eq!(
+            Ok(Op::Equals {
+                s1: Parameter::Immediate(3),
+                s2: Parameter::Immediate(4),
+                dest: 0
+            }),
+            next_op(&[1108, 3, 4, 0])
+        )
+    }
+
+    #[test]
+    fn apply_add() {
         let mut mem: Memory = vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
         let inputs = vec![];
 
@@ -214,8 +367,8 @@ mod tests {
             Jump::Relative(4),
             apply_op(
                 &Op::Add {
-                    s1: Parameter::Position { pos: 9 },
-                    s2: Parameter::Position { pos: 10 },
+                    s1: Parameter::Position(9),
+                    s2: Parameter::Position(10),
                     dest: 3,
                 },
                 &mut mem,
@@ -224,13 +377,19 @@ mod tests {
         );
 
         assert_eq!(vec![1, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
+    }
+
+    #[test]
+    fn apply_mul() {
+        let mut mem: Memory = vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
+        let inputs = vec![];
 
         assert_eq!(
             Jump::Relative(4),
             apply_op(
                 &Op::Mul {
-                    s1: Parameter::Position { pos: 3 },
-                    s2: Parameter::Position { pos: 11 },
+                    s1: Parameter::Position(3),
+                    s2: Parameter::Position(11),
                     dest: 0,
                 },
                 &mut mem,
@@ -238,20 +397,159 @@ mod tests {
             )
         );
 
-        assert_eq!(vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
+        assert_eq!(vec![150, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50], mem);
+    }
+
+    #[test]
+    fn apply_halt() {
+        let mut mem: Memory = vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50];
+        let inputs = vec![];
 
         assert_eq!(
             Jump::Halt,
             apply_op(&Op::Halt, &mut mem, &mut inputs.iter())
         );
 
-        assert_eq!(vec![3500, 9, 10, 70, 2, 3, 11, 0, 99, 30, 40, 50], mem);
+        assert_eq!(vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50], mem);
+    }
+
+    #[test]
+    fn apply_jump_if_true() {
+        let mut mem = vec![5, 0, 40];
+        let inputs = vec![];
+
+        assert_eq!(
+            Jump::Relative(3),
+            apply_op(
+                &Op::JumpIfTrue {
+                    cmp: Parameter::Immediate(0),
+                    dest: Parameter::Immediate(40)
+                },
+                &mut mem,
+                &mut inputs.iter()
+            )
+        );
+
+        assert_eq!(
+            Jump::Absolute(40),
+            apply_op(
+                &Op::JumpIfTrue {
+                    cmp: Parameter::Immediate(1),
+                    dest: Parameter::Immediate(40)
+                },
+                &mut mem,
+                &mut inputs.iter()
+            )
+        )
+    }
+
+    #[test]
+    fn apply_jump_if_false() {
+        let mut mem = vec![6, 0, 40];
+        let inputs = vec![];
+
+        assert_eq!(
+            Jump::Relative(3),
+            apply_op(
+                &Op::JumpIfFalse {
+                    cmp: Parameter::Immediate(1),
+                    dest: Parameter::Immediate(40)
+                },
+                &mut mem,
+                &mut inputs.iter()
+            )
+        );
+
+        assert_eq!(
+            Jump::Absolute(40),
+            apply_op(
+                &Op::JumpIfFalse {
+                    cmp: Parameter::Immediate(0),
+                    dest: Parameter::Immediate(40)
+                },
+                &mut mem,
+                &mut inputs.iter()
+            )
+        )
+    }
+
+    #[test]
+    fn apply_less_than() {
+        let mut mem = vec![7];
+        let inputs = vec![];
+
+        assert_eq!(
+            Jump::Relative(4),
+            apply_op(
+                &Op::LessThan {
+                    s1: Parameter::Immediate(3),
+                    s2: Parameter::Immediate(4),
+                    dest: 0
+                },
+                &mut mem,
+                &mut inputs.iter()
+            )
+        );
+
+        assert_eq!(vec![1], mem);
+
+        assert_eq!(
+            Jump::Relative(4),
+            apply_op(
+                &Op::LessThan {
+                    s1: Parameter::Immediate(3),
+                    s2: Parameter::Immediate(2),
+                    dest: 0
+                },
+                &mut mem,
+                &mut inputs.iter()
+            )
+        );
+
+        assert_eq!(vec![0], mem)
+    }
+
+    #[test]
+    fn apply_equals() {
+        let mut mem = vec![7];
+        let inputs = vec![];
+
+        assert_eq!(
+            Jump::Relative(4),
+            apply_op(
+                &Op::Equals {
+                    s1: Parameter::Immediate(3),
+                    s2: Parameter::Immediate(4),
+                    dest: 0
+                },
+                &mut mem,
+                &mut inputs.iter()
+            )
+        );
+
+        assert_eq!(vec![0], mem);
+
+        assert_eq!(
+            Jump::Relative(4),
+            apply_op(
+                &Op::Equals {
+                    s1: Parameter::Immediate(3),
+                    s2: Parameter::Immediate(3),
+                    dest: 0
+                },
+                &mut mem,
+                &mut inputs.iter()
+            )
+        );
+
+        assert_eq!(vec![1], mem)
     }
 
     #[test]
     fn execute_add() {
         let mut mem = vec![1, 0, 0, 0, 99];
         let input = vec![];
+
         execute(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 0, 0, 0, 99]);
     }
@@ -260,6 +558,7 @@ mod tests {
     fn execute_mul() {
         let mut mem = vec![2, 3, 0, 3, 99];
         let input = vec![];
+
         execute(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 3, 0, 6, 99]);
     }
@@ -268,6 +567,7 @@ mod tests {
     fn execute_with_trailing_data() {
         let mut mem = vec![2, 4, 4, 5, 99, 0];
         let input = vec![];
+
         execute(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 4, 4, 5, 99, 9801]);
     }
