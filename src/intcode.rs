@@ -111,8 +111,10 @@ fn build_op(spec: InstructionSpec, slice: &[i64]) -> Result<Op, Error> {
         }
     };
 
-    let address_from =
-        |n: usize| Address::try_from(slice[n]).expect("{} must be an Address");
+    let address_from = |n: usize| {
+        Address::try_from(slice[n])
+            .expect(&format!("{} must be an Address", slice[n]))
+    };
 
     let op = match spec.opcode {
         1 => Add {
@@ -165,9 +167,9 @@ fn next_op(mem: &[i64]) -> Result<Op, Error> {
 
 fn jump_if(dest: Address, f: impl Fn() -> bool) -> Jump {
     if f() {
-        return Jump::Absolute(dest);
+        Jump::Absolute(dest)
     } else {
-        return Jump::Relative(3);
+        Jump::Relative(3)
     }
 }
 
