@@ -113,7 +113,7 @@ fn build_op(spec: InstructionSpec, slice: &[i64]) -> Result<Op, Error> {
 
     let address_from = |n: usize| {
         Address::try_from(slice[n])
-            .expect(&format!("{} must be an Address", slice[n]))
+            .unwrap_or_else(|_| panic!("{} must be an Address", slice[n]))
     };
 
     let op = match spec.opcode {
