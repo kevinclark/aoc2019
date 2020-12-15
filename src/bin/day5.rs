@@ -13,10 +13,10 @@ fn main() {
     println!("Part 1");
     let mut mem = intcode::load_program(input);
     let inputs = [1i64];
-    intcode::execute(&mut mem, &mut inputs.iter());
+    intcode::execute(&mut mem, &mut inputs.iter(), &mut std::io::stdout());
 
     println!("Part 2");
     let mut mem = intcode::load_program(input);
     let inputs = [5i64];
-    intcode::execute(&mut mem, &mut inputs.iter());
+    intcode::execute(&mut mem, &mut inputs.iter(), &mut std::io::stdout());
 }

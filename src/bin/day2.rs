@@ -12,6 +12,8 @@ fn main() {
 
     let initial_state = intcode::load_program(input);
 
+    let mut stdout = std::io::stdout();
+
     for noun in 0..=99 {
         for verb in 0..=99 {
             let mut mem = initial_state.to_vec();
@@ -20,7 +22,7 @@ fn main() {
             mem[1] = noun;
             mem[2] = verb;
 
-            intcode::execute(&mut mem, &mut inputs.iter());
+            intcode::execute(&mut mem, &mut inputs.iter(), &mut stdout);
 
             if mem[0] == 19690720 {
                 println!("Noun: {} Verb: {}", noun, verb);

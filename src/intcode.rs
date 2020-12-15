@@ -177,6 +177,7 @@ fn apply_op<'a>(
     op: &Op,
     mem: &mut Memory,
     inputs: &mut impl Iterator<Item = &'a i64>,
+    mut output: impl std::io::Write,
 ) -> Jump {
     use Op::*;
 
@@ -192,7 +193,9 @@ fn apply_op<'a>(
         Input { dest } => {
             mem[*dest] = inputs.next().copied().expect("Expected an input")
         }
-        Output { src } => println!("Output: {}", value_of(src)),
+        Output { src } => {
+            writeln!(output, "Output: {}", value_of(src)).unwrap();
+        }
         JumpIfTrue { cmp, dest } => {
             return jump_if(usize::try_from(value_of(dest)).unwrap(), || {
                 value_of(cmp) != 0
@@ -224,6 +227,7 @@ fn apply_op<'a>(
 pub fn execute<'a>(
     mem: &mut Memory,
     inputs: &mut impl Iterator<Item = &'a i64>,
+    mut output: impl std::io::Write,
 ) {
     let mut ticks = 0;
     let mut ip = 0;
@@ -232,7 +236,7 @@ pub fn execute<'a>(
         let o = next_op(&mem[ip..]);
 
         if DEBUG_ON {
-            println!("Mem:");
+            writeln!(output, "Mem:").unwrap();
 
             let mut offset = 0;
             for line in (*mem).chunks(5).map(|c| {
@@ -241,19 +245,19 @@ pub fn execute<'a>(
                     .collect::<Vec<String>>()
                     .join("\t")
             }) {
-                println!("{}|\t{}", offset, line);
+                writeln!(output, "{}|\t{}", offset, line).unwrap();
 
                 offset += 5
             }
 
-            println!("Next op: {:?}", o);
-            println!("");
-            println!("");
+            writeln!(output, "Next op: {:?}", o).unwrap();
+            writeln!(output, "").unwrap();
+            writeln!(output, "").unwrap();
         }
 
         match o {
             Ok(op) => {
-                ip = match apply_op(&op, mem, inputs) {
+                ip = match apply_op(&op, mem, inputs, &mut output) {
                     Jump::Relative(offset) => ip + offset,
                     Jump::Absolute(address) => address,
                     Jump::Halt => break,
@@ -272,6 +276,21 @@ pub fn execute<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn execute_to_stdout<'a>(
+        mem: &mut Memory,
+        inputs: &mut impl Iterator<Item = &'a i64>,
+    ) {
+        execute(mem, inputs, &mut std::io::stdout())
+    }
+
+    fn apply_to_stdout<'a>(
+        op: &Op,
+        mem: &mut Memory,
+        inputs: &mut impl Iterator<Item = &'a i64>,
+    ) -> Jump {
+        apply_op(op, mem, inputs, &mut std::io::stdout())
+    }
 
     #[test]
     fn loading() {
@@ -367,7 +386,7 @@ mod tests {
 
         assert_eq!(
             Jump::Relative(4),
-            apply_op(
+            apply_to_stdout(
                 &Op::Add {
                     s1: Parameter::Position(9),
                     s2: Parameter::Position(10),
@@ -388,7 +407,7 @@ mod tests {
 
         assert_eq!(
             Jump::Relative(4),
-            apply_op(
+            apply_to_stdout(
                 &Op::Mul {
                     s1: Parameter::Position(3),
                     s2: Parameter::Position(11),
@@ -409,7 +428,7 @@ mod tests {
 
         assert_eq!(
             Jump::Halt,
-            apply_op(&Op::Halt, &mut mem, &mut inputs.iter())
+            apply_to_stdout(&Op::Halt, &mut mem, &mut inputs.iter())
         );
 
         assert_eq!(vec![1, 9, 10, 3, 2, 3, 11, 0, 99, 30, 40, 50], mem);
@@ -422,7 +441,7 @@ mod tests {
 
         assert_eq!(
             Jump::Relative(3),
-            apply_op(
+            apply_to_stdout(
                 &Op::JumpIfTrue {
                     cmp: Parameter::Immediate(0),
                     dest: Parameter::Immediate(40)
@@ -434,7 +453,7 @@ mod tests {
 
         assert_eq!(
             Jump::Absolute(40),
-            apply_op(
+            apply_to_stdout(
                 &Op::JumpIfTrue {
                     cmp: Parameter::Immediate(1),
                     dest: Parameter::Immediate(40)
@@ -452,7 +471,7 @@ mod tests {
 
         assert_eq!(
             Jump::Relative(3),
-            apply_op(
+            apply_to_stdout(
                 &Op::JumpIfFalse {
                     cmp: Parameter::Immediate(1),
                     dest: Parameter::Immediate(40)
@@ -464,7 +483,7 @@ mod tests {
 
         assert_eq!(
             Jump::Absolute(40),
-            apply_op(
+            apply_to_stdout(
                 &Op::JumpIfFalse {
                     cmp: Parameter::Immediate(0),
                     dest: Parameter::Immediate(40)
@@ -482,7 +501,7 @@ mod tests {
 
         assert_eq!(
             Jump::Relative(4),
-            apply_op(
+            apply_to_stdout(
                 &Op::LessThan {
                     s1: Parameter::Immediate(3),
                     s2: Parameter::Immediate(4),
@@ -497,7 +516,7 @@ mod tests {
 
         assert_eq!(
             Jump::Relative(4),
-            apply_op(
+            apply_to_stdout(
                 &Op::LessThan {
                     s1: Parameter::Immediate(3),
                     s2: Parameter::Immediate(2),
@@ -518,7 +537,7 @@ mod tests {
 
         assert_eq!(
             Jump::Relative(4),
-            apply_op(
+            apply_to_stdout(
                 &Op::Equals {
                     s1: Parameter::Immediate(3),
                     s2: Parameter::Immediate(4),
@@ -533,7 +552,7 @@ mod tests {
 
         assert_eq!(
             Jump::Relative(4),
-            apply_op(
+            apply_to_stdout(
                 &Op::Equals {
                     s1: Parameter::Immediate(3),
                     s2: Parameter::Immediate(3),
@@ -552,7 +571,7 @@ mod tests {
         let mut mem = vec![1, 0, 0, 0, 99];
         let input = vec![];
 
-        execute(&mut mem, &mut input.iter());
+        execute_to_stdout(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 0, 0, 0, 99]);
     }
 
@@ -561,7 +580,7 @@ mod tests {
         let mut mem = vec![2, 3, 0, 3, 99];
         let input = vec![];
 
-        execute(&mut mem, &mut input.iter());
+        execute_to_stdout(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 3, 0, 6, 99]);
     }
 
@@ -570,7 +589,7 @@ mod tests {
         let mut mem = vec![2, 4, 4, 5, 99, 0];
         let input = vec![];
 
-        execute(&mut mem, &mut input.iter());
+        execute_to_stdout(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![2, 4, 4, 5, 99, 9801]);
     }
 
@@ -578,7 +597,7 @@ mod tests {
     fn execute_instructions_modified() {
         let mut mem = vec![1, 1, 1, 4, 99, 5, 6, 0, 99];
         let input = vec![];
-        execute(&mut mem, &mut input.iter());
+        execute_to_stdout(&mut mem, &mut input.iter());
         assert_eq!(mem, vec![30, 1, 1, 4, 2, 5, 6, 0, 99]);
     }
 }

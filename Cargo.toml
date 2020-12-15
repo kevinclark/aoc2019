@@ -11,3 +11,8 @@ snafu = "0.6"
 clap = "2"
 anyhow = "1"
 itertools = "0.9"
+criterion = "0.3"
+
+[[bench]]
+name = "day5"
+harness = false
