@@ -4,7 +4,8 @@ version = "0.1.0"
 authors = ["Kevin Clark <kevin.clark@gmail.com>"]
 edition = "2018"
 
-[workspace]
+[profile.bench]
+debug = true
 
 [dependencies]
 snafu = "0.6"

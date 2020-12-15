@@ -159,8 +159,9 @@ fn build_op(spec: InstructionSpec, slice: &[i64]) -> Result<Op, Error> {
 }
 
 fn next_op(mem: &[i64]) -> Result<Op, Error> {
-    let instruction = u16::try_from(mem[0])
-        .expect(&format!("Instruction too large: {}", mem[0]));
+    let instruction = u16::try_from(mem[0]).unwrap_or_else(|_| {
+        panic!(format!("Instruction too large: {}", mem[0]))
+    });
 
     build_op(parse_instruction_spec(instruction), &mem[1..])
 }
