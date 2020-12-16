@@ -82,13 +82,15 @@ fn parse_instruction_spec(int: u16) -> InstructionSpec {
     let mut remaining = int;
     let mut ds: [u8; 5] = [0; 5];
 
-    let mut idx = 4;
-    while remaining > 0 {
-        ds[idx] = u8::try_from(remaining % 10)
-            .expect("Mod 10 doesn't fit into u8. Something is very wrong.");
-        remaining /= 10;
-        idx -= 1;
-    }
+    ds[4] = u8::try_from(remaining % 10).unwrap();
+    remaining /= 10;
+    ds[3] = u8::try_from(remaining % 10).unwrap();
+    remaining /= 10;
+    ds[2] = u8::try_from(remaining % 10).unwrap();
+    remaining /= 10;
+    ds[1] = u8::try_from(remaining % 10).unwrap();
+    remaining /= 10;
+    ds[0] = u8::try_from(remaining % 10).unwrap();
 
     InstructionSpec {
         opcode: u8::try_from((ds[3] * 10) + ds[4])
