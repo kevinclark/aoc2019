@@ -80,21 +80,19 @@ pub fn load_program(text: &str) -> Memory {
 
 fn parse_instruction_spec(int: u16) -> InstructionSpec {
     let mut remaining = int;
-    let mut ds: [u8; 5] = [0; 5];
 
-    ds[4] = u8::try_from(remaining % 10).unwrap();
+    let ones = u8::try_from(remaining % 10).unwrap();
     remaining /= 10;
-    ds[3] = u8::try_from(remaining % 10).unwrap();
+    let tens = u8::try_from(remaining % 10).unwrap();
     remaining /= 10;
-    ds[2] = u8::try_from(remaining % 10).unwrap();
-    remaining /= 10;
-    ds[1] = u8::try_from(remaining % 10).unwrap();
-    remaining /= 10;
-    ds[0] = u8::try_from(remaining % 10).unwrap();
 
     InstructionSpec {
-        opcode: u8::try_from((ds[3] * 10) + ds[4]).unwrap(),
-        param_is_immediate: [ds[2] == 1, ds[1] == 1, ds[0] == 1],
+        opcode: u8::try_from((tens * 10u8) + ones).unwrap(),
+        param_is_immediate: [
+            (remaining & 1) == 1,
+            (remaining & 10) == 10,
+            (remaining & 100) == 100,
+        ],
     }
 }
 
@@ -225,40 +223,40 @@ fn apply_op<'a>(
     }
 }
 
+fn write_debug(mem: &Memory, next_op: &Op, mut output: impl std::io::Write) {
+    writeln!(output, "Mem:").unwrap();
+
+    let mut offset = 0;
+    for line in (*mem).chunks(5).map(|c| {
+        c.iter()
+            .map(|n| n.to_string())
+            .collect::<Vec<String>>()
+            .join("\t")
+    }) {
+        writeln!(output, "{}|\t{}", offset, line).unwrap();
+
+        offset += 5
+    }
+
+    writeln!(output, "Next op: {:?}", next_op).unwrap();
+    writeln!(output, "").unwrap();
+    writeln!(output, "").unwrap();
+}
+
 pub fn execute<'a>(
     mem: &mut Memory,
     inputs: &mut impl Iterator<Item = &'a i64>,
     mut output: impl std::io::Write,
 ) {
-    let mut ticks = 0;
     let mut ip = 0;
 
     loop {
         let op = next_op(&mem[ip..]).unwrap_or_else(|e| {
-            panic!(
-                "Failure at ip: {} ticks: {}\nFailure: {:?}\nMemory: {:?}",
-                ip, ticks, e, mem
-            )
+            panic!("Failure at ip: {}\nFailure: {:?}\nMemory: {:?}", ip, e, mem)
         });
 
         if DEBUG_ON {
-            writeln!(output, "Mem:").unwrap();
-
-            let mut offset = 0;
-            for line in (*mem).chunks(5).map(|c| {
-                c.iter()
-                    .map(|n| n.to_string())
-                    .collect::<Vec<String>>()
-                    .join("\t")
-            }) {
-                writeln!(output, "{}|\t{}", offset, line).unwrap();
-
-                offset += 5
-            }
-
-            writeln!(output, "Next op: {:?}", op).unwrap();
-            writeln!(output, "").unwrap();
-            writeln!(output, "").unwrap();
+            write_debug(mem, &op, &mut output);
         }
 
         ip = match apply_op(&op, mem, inputs, &mut output) {
@@ -266,8 +264,6 @@ pub fn execute<'a>(
             Jump::Absolute(address) => address,
             Jump::Halt => break,
         };
-
-        ticks += 1;
     }
 }
 
