@@ -93,8 +93,7 @@ fn parse_instruction_spec(int: u16) -> InstructionSpec {
     ds[0] = u8::try_from(remaining % 10).unwrap();
 
     InstructionSpec {
-        opcode: u8::try_from((ds[3] * 10) + ds[4])
-            .expect("Op code is > 99, which makes little sense"),
+        opcode: u8::try_from((ds[3] * 10) + ds[4]).unwrap(),
         param_is_immediate: [ds[2] == 1, ds[1] == 1, ds[0] == 1],
     }
 }
@@ -234,7 +233,7 @@ pub fn execute<'a>(
     let mut ticks = 0;
     let mut ip = 0;
 
-    while ip < mem.len() {
+    loop {
         let o = next_op(&mem[ip..]);
 
         if DEBUG_ON {
