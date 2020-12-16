@@ -234,7 +234,12 @@ pub fn execute<'a>(
     let mut ip = 0;
 
     loop {
-        let o = next_op(&mem[ip..]);
+        let op = next_op(&mem[ip..]).unwrap_or_else(|e| {
+            panic!(
+                "Failure at ip: {} ticks: {}\nFailure: {:?}\nMemory: {:?}",
+                ip, ticks, e, mem
+            )
+        });
 
         if DEBUG_ON {
             writeln!(output, "Mem:").unwrap();
@@ -251,24 +256,16 @@ pub fn execute<'a>(
                 offset += 5
             }
 
-            writeln!(output, "Next op: {:?}", o).unwrap();
+            writeln!(output, "Next op: {:?}", op).unwrap();
             writeln!(output, "").unwrap();
             writeln!(output, "").unwrap();
         }
 
-        match o {
-            Ok(op) => {
-                ip = match apply_op(&op, mem, inputs, &mut output) {
-                    Jump::Relative(offset) => ip + offset,
-                    Jump::Absolute(address) => address,
-                    Jump::Halt => break,
-                }
-            }
-            Err(e) => panic!(
-                "Failure at ip: {} ticks: {}\nFailure: {:?}\nMemory: {:?}",
-                ip, ticks, e, mem
-            ),
-        }
+        ip = match apply_op(&op, mem, inputs, &mut output) {
+            Jump::Relative(offset) => ip + offset,
+            Jump::Absolute(address) => address,
+            Jump::Halt => break,
+        };
 
         ticks += 1;
     }
